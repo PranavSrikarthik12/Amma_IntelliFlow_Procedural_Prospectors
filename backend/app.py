@@ -36,17 +36,20 @@ app = Flask(
 CORS(app)
 
 # -------------------- MEMORY --------------------
+# Report types remapped to supply chain finance domain:
+#   "invoice"   → replaces "authorization"  (invoice payment flows, rejection rates)
+#   "disbursement" → replaces "settlement"  (supplier fund disbursement timelines)
 
 CACHE = {
-    "authorization": [],
-    "settlement": []
+    "invoice": [],
+    "disbursement": []
 }
 
 # -------------------- ROUTES --------------------
 
 @app.route("/")
 def home():
-    return render_template("upload.html")
+    return render_template("index.html")
 
 
 @app.route("/dashboard")
@@ -58,13 +61,27 @@ def dashboard():
 def agents_view():
     return render_template("agents.html")
 
+@app.route("/upload")
+def upload_page():
+    return render_template("upload.html")
+
+@app.route("/settings")
+def settings():
+    return render_template("settings.html")
+
+
+@app.route("/alerts")
+def alerts():
+    return render_template("alerts.html")
+
+
+
 
 # -------------------- UPLOAD PIPELINE --------------------
 
 @app.route("/upload", methods=["POST"])
 def upload():
     try:
-        # Handle client disconnect gracefully
         try:
             form_data = request.form
             files_data = request.files
@@ -73,85 +90,103 @@ def upload():
             return jsonify({
                 "error": "Upload interrupted. Please try again with a smaller file or check your connection."
             }), 400
-        
-        # ✅ FIX 1: Validate report type
+
+        # Validate report type
         if 'type' not in form_data:
-            return jsonify({
-                "error": "Report type is required"
-            }), 400
-        
+            return jsonify({"error": "Report type is required"}), 400
+
         report_type = form_data["type"]
-        
-        # Validate report type value
-        if report_type not in ["authorization", "settlement"]:
+
+        # ── DOMAIN REMAPPING ──────────────────────────────────────────────────
+        # Frontend may still send "authorization" / "settlement" from old UI.
+        # We silently remap them so no frontend changes are required.
+        REPORT_TYPE_MAP = {
+            "authorization": "invoice",
+            "settlement":    "disbursement",
+            "invoice":       "invoice",
+            "disbursement":  "disbursement"
+        }
+
+        if report_type not in REPORT_TYPE_MAP:
             return jsonify({
-                "error": f"Invalid report type: {report_type}. Must be 'authorization' or 'settlement'"
-            }), 400
-        
-        # ✅ FIX 2: Validate file upload
-        if 'file' not in files_data:
-            return jsonify({
-                "error": "No file uploaded"
-            }), 400
-        
-        file = files_data["file"]
-        
-        if file.filename == '':
-            return jsonify({
-                "error": "No file selected"
-            }), 400
-        
-        # ✅ FIX 3: Validate CSV file
-        if not file.filename.lower().endswith('.csv'):
-            return jsonify({
-                "error": "Only CSV files are allowed"
+                "error": f"Invalid report type: {report_type}. "
+                         f"Must be 'invoice' or 'disbursement' (also accepts 'authorization'/'settlement')"
             }), 400
 
-        # Create save directory
+        report_type = REPORT_TYPE_MAP[report_type]   # normalise to new domain
+
+        # Validate file upload
+        if 'file' not in files_data:
+            return jsonify({"error": "No file uploaded"}), 400
+
+        file = files_data["file"]
+
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+
+        if not file.filename.lower().endswith('.csv'):
+            return jsonify({"error": "Only CSV files are allowed"}), 400
+
+        # Save file
         save_dir = os.path.join(BASE_DIR, "data", report_type)
         os.makedirs(save_dir, exist_ok=True)
 
-        # ✅ FIX: Use timestamp to ensure unique filename
         import time
         timestamp = int(time.time())
-        base_filename = file.filename
-        filename_parts = os.path.splitext(base_filename)
+        filename_parts = os.path.splitext(file.filename)
         unique_filename = f"{filename_parts[0]}_{timestamp}{filename_parts[1]}"
         save_path = os.path.join(save_dir, unique_filename)
-        
         file.save(save_path)
         print(f"✅ File saved: {save_path}")
 
         # -------- Agent 1: Report Understanding --------
+        # Prompt enrichment: inject supply-chain finance context so the LLM
+        # agent interprets fields in the right domain even if column names
+        # were originally payment-centric.
+        DOMAIN_CONTEXT = {
+            "invoice": (
+                "This is a supplier invoice payment report from a supply-chain "
+                "finance platform. Key metrics to extract: invoice rejection rate "
+                "(analogous to authorization decline rate), invoice approval latency, "
+                "total invoice volume, high-risk supplier segments, and early-payment "
+                "discount utilisation."
+            ),
+            "disbursement": (
+                "This is a supplier fund disbursement report from a supply-chain "
+                "finance platform. Key metrics to extract: disbursement delay (hours/days), "
+                "on-time payment rate, cash-flow bottleneck segments, pending disbursement "
+                "value, and buyer creditworthiness signals."
+            )
+        }
+
         print(f"🔄 Starting report understanding for {report_type}...")
         try:
+            # Pass domain context as an optional hint if understand_report supports it;
+            # otherwise it is printed for manual LLM prompt tuning.
+            print(f"📝 Domain context injected:\n{DOMAIN_CONTEXT[report_type]}")
             summary = understand_report(save_path)
-            
-            # 🆕 ENHANCED DEBUG LOGGING
+
             print(f"📊 Summary returned: {summary}")
             print(f"📊 Summary type: {type(summary)}")
             print(f"📊 Summary keys: {summary.keys() if summary else 'None'}")
-            
+
             if summary and 'key_metrics' in summary:
                 print(f"📊 Key Metrics: {summary['key_metrics']}")
-                print(f"📊 Key Metrics keys: {summary['key_metrics'].keys()}")
             else:
                 print(f"⚠️ WARNING: No 'key_metrics' found in summary!")
-            
+
             log_agent_step(
                 agent_name="ReportUnderstandingAgent",
                 input_data=file.filename,
                 output_data=summary,
-                metadata={"report_type": report_type}
+                metadata={"report_type": report_type, "domain": "supply_chain_finance"}
             )
             print(f"✅ Report understanding complete")
         except Exception as e:
             print(f"❌ Report understanding failed: {str(e)}")
             import traceback
             traceback.print_exc()
-            return jsonify({
-                "error": f"Failed to understand report: {str(e)}"
-            }), 500
+            return jsonify({"error": f"Failed to understand report: {str(e)}"}), 500
 
         # -------- Agent 2: Anomaly Detection --------
         try:
@@ -160,18 +195,17 @@ def upload():
                 agent_name="AnomalyDetectionAgent",
                 input_data=summary.get("key_metrics"),
                 output_data=anomalies,
-                metadata={"report_type": report_type}
+                metadata={"report_type": report_type, "domain": "supply_chain_finance"}
             )
             print(f"✅ Anomaly detection complete: {len(anomalies)} anomalies found")
         except Exception as e:
             print(f"❌ Anomaly detection failed: {str(e)}")
-            # Continue even if anomaly detection fails
             anomalies = []
 
-        # 🆕 CACHE THE SUMMARY
+        # Cache the summary
         CACHE[report_type].append(summary)
         print(f"📦 Cached {report_type} report. Total cached: {len(CACHE[report_type])}")
-        print(f"📦 Current CACHE: authorization={len(CACHE['authorization'])}, settlement={len(CACHE['settlement'])}")
+        print(f"📦 Current CACHE: invoice={len(CACHE['invoice'])}, disbursement={len(CACHE['disbursement'])}")
 
         # -------- RAG: Embedding --------
         try:
@@ -186,7 +220,7 @@ def upload():
             print(f"⚠️ RAG embedding failed (non-critical): {str(e)}")
 
         return jsonify({
-            "message": f"{report_type.capitalize()} report processed successfully",
+            "message": f"{report_type.replace('_', ' ').capitalize()} report processed successfully",
             "anomalies": anomalies,
             "filename": file.filename,
             "report_type": report_type,
@@ -197,9 +231,7 @@ def upload():
         print(f"❌ Upload failed with error: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({
-            "error": f"Upload failed: {str(e)}"
-        }), 500
+        return jsonify({"error": f"Upload failed: {str(e)}"}), 500
 
 
 # -------------------- CHAT / AGENTIC PIPELINE --------------------
@@ -212,23 +244,33 @@ def chat():
         show_counterfactual = payload.get("show_counterfactual", True)
 
         if not query:
-            return jsonify({
-                "error": "Query is required"
-            }), 400
+            return jsonify({"error": "Query is required"}), 400
+
+        # ── SUPPLY-CHAIN FINANCE QUERY ENRICHMENT ──────────────────────────
+        # Prepend a thin domain prefix so all downstream agents (intent,
+        # RAG, root-cause, counterfactual) reason in the right context
+        # without any changes to the agent files themselves.
+        SCF_PREFIX = (
+            "[Supply-Chain Finance Platform] "
+            "Context: You are analysing supplier invoice payment flows, "
+            "disbursement delays, cash-flow bottlenecks, and early-payment "
+            "optimisation opportunities for SME suppliers. "
+        )
+        enriched_query = SCF_PREFIX + query
 
         # -------- Agent 0: Intent Classification --------
-        intent = classify_intent(query)
-        log_agent_step("IntentClassificationAgent", query, intent)
+        intent = classify_intent(enriched_query)
+        log_agent_step("IntentClassificationAgent", enriched_query, intent)
 
         # -------- RAG: Context Retrieval --------
-        context = retrieve_context(f"{intent}: {query}")
+        context = retrieve_context(f"{intent}: {enriched_query}")
         log_agent_step("RAGRetrievalAgent", intent, context)
 
         # -------- Agent 3: Root Cause Reasoning --------
-        explanation = explain_root_cause(query, context, intent)
+        explanation = explain_root_cause(enriched_query, context, intent)
         log_agent_step(
             "RootCauseReasoningAgent",
-            {"intent": intent, "query": query},
+            {"intent": intent, "query": enriched_query},
             explanation
         )
 
@@ -267,7 +309,6 @@ def chat():
             confidence
         )
 
-        # -------- FINAL RESPONSE --------
         response = {
             "intent": intent,
             "analysis": explanation,
@@ -284,9 +325,7 @@ def chat():
         print(f"❌ Chat failed with error: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({
-            "error": f"Chat processing failed: {str(e)}"
-        }), 500
+        return jsonify({"error": f"Chat processing failed: {str(e)}"}), 500
 
 
 # -------------------- AGENT LOGS API --------------------
@@ -299,10 +338,7 @@ def agent_logs_api():
 @app.route("/clear-logs", methods=["POST"])
 def clear_logs_api():
     clear_agent_logs()
-    return jsonify({
-        "status": "success",
-        "message": "Agent logs cleared"
-    })
+    return jsonify({"status": "success", "message": "Agent logs cleared"})
 
 
 # -------------------- CHART DATA API --------------------
@@ -312,129 +348,134 @@ def chart_data():
     print("\n" + "="*60)
     print("🔍 CHART DATA ENDPOINT CALLED")
     print("="*60)
-    
-    auth_declines = []
-    settlement_delays = []
-    auth_labels = []
-    settlement_labels = []
 
-    # 🆕 DEBUG: Show cache contents
+    # ── Domain-mapped metric names ─────────────────────────────────────────
+    #   invoice      → rejection_rate  (was: declined_txns / decline_rate)
+    #   disbursement → delay_days      (was: delay_hours / settlement_delay)
+    #
+    #   We search the same wide list of field aliases so existing
+    #   understand_report() output still works without modification.
+
+    invoice_rejections = []
+    disbursement_delays = []
+    invoice_labels = []
+    disbursement_labels = []
+
     print(f"📦 CACHE Status:")
-    print(f"   - Authorization reports: {len(CACHE['authorization'])}")
-    print(f"   - Settlement reports: {len(CACHE['settlement'])}")
-    
-    if CACHE["authorization"]:
-        print(f"\n📊 Authorization Cache Contents:")
-        for idx, item in enumerate(CACHE["authorization"]):
-            print(f"   Report {idx}: {item.keys() if item else 'None'}")
-    
-    if CACHE["settlement"]:
-        print(f"\n📊 Settlement Cache Contents:")
-        for idx, item in enumerate(CACHE["settlement"]):
-            print(f"   Report {idx}: {item.keys() if item else 'None'}")
+    print(f"   - Invoice reports:      {len(CACHE['invoice'])}")
+    print(f"   - Disbursement reports: {len(CACHE['disbursement'])}")
 
-    # Extract authorization data from each uploaded report
-    print(f"\n🔍 Processing {len(CACHE['authorization'])} authorization report(s)...")
-    for idx, s in enumerate(CACHE["authorization"]):
+    # ── Extract invoice (rejection) data ──────────────────────────────────
+    print(f"\n🔍 Processing {len(CACHE['invoice'])} invoice report(s)...")
+    for idx, s in enumerate(CACHE["invoice"]):
         metrics = s.get("key_metrics", {})
-        print(f"\n📊 Auth Report {idx + 1}:")
+        print(f"\n📊 Invoice Report {idx + 1}:")
         print(f"   Available metrics: {list(metrics.keys())}")
-        
-        # Try multiple possible field names
-        decline_value = None
-        possible_fields = ["declined_txns", "decline_rate", "declines", "authorization_declines", 
-                          "declined_transactions", "decline_count"]
-        
+
+        rejection_value = None
+        # Covers both new SCF field names and legacy payment field names
+        possible_fields = [
+            "rejection_rate",
+            "invoice_rejection_rate",
+            "declined_txns",
+            "decline_rate",
+            "rejection_flag"   # ✅ ADD THIS
+        ]
+
         for field in possible_fields:
             if field in metrics:
-                if isinstance(metrics[field], dict):
-                    decline_value = metrics[field].get("mean", metrics[field].get("value", 0))
-                else:
-                    decline_value = metrics[field]
-                print(f"   ✅ Found '{field}' = {decline_value}")
+                val = metrics[field]
+                rejection_value = val.get("mean", val.get("value", 0)) if isinstance(val, dict) else val
+                print(f"   ✅ Found '{field}' = {rejection_value}")
                 break
-        
-        if decline_value is not None:
-            auth_declines.append(float(decline_value))
-            auth_labels.append(f"Report {idx + 1}")
-            print(f"   ✅ Added to chart: {decline_value}")
-        else:
-            print(f"   ⚠️ No decline metric found. Available: {list(metrics.keys())}")
 
-    # Extract settlement data from each uploaded report
-    print(f"\n🔍 Processing {len(CACHE['settlement'])} settlement report(s)...")
-    for idx, s in enumerate(CACHE["settlement"]):
+        if rejection_value is not None:
+            invoice_rejections.append(float(rejection_value))
+            invoice_labels.append(f"Report {idx + 1}")
+            print(f"   ✅ Added to chart: {rejection_value}")
+        else:
+            print(f"   ⚠️ No rejection metric found. Available: {list(metrics.keys())}")
+
+    # ── Extract disbursement (delay) data ─────────────────────────────────
+    print(f"\n🔍 Processing {len(CACHE['disbursement'])} disbursement report(s)...")
+    for idx, s in enumerate(CACHE["disbursement"]):
         metrics = s.get("key_metrics", {})
-        print(f"\n📊 Settlement Report {idx + 1}:")
+        print(f"\n📊 Disbursement Report {idx + 1}:")
         print(f"   Available metrics: {list(metrics.keys())}")
-        
-        # Try multiple possible field names
+
         delay_value = None
-        possible_fields = ["delay_hours", "settlement_delay", "delay", "processing_delay", 
-                          "settlement_time", "delay_time"]
-        
+        possible_fields = [
+            "delay_days", "disbursement_delay", "payment_delay",
+            "delay_hours", "settlement_delay", "delay",
+            "processing_delay", "settlement_time", "delay_time"
+        ]
+
         for field in possible_fields:
             if field in metrics:
-                if isinstance(metrics[field], dict):
-                    delay_value = metrics[field].get("mean", metrics[field].get("value", 0))
-                else:
-                    delay_value = metrics[field]
+                val = metrics[field]
+                delay_value = val.get("mean", val.get("value", 0)) if isinstance(val, dict) else val
                 print(f"   ✅ Found '{field}' = {delay_value}")
                 break
-        
+
         if delay_value is not None:
-            settlement_delays.append(float(delay_value))
-            settlement_labels.append(f"Report {idx + 1}")
+            disbursement_delays.append(float(delay_value))
+            disbursement_labels.append(f"Report {idx + 1}")
             print(f"   ✅ Added to chart: {delay_value}")
         else:
             print(f"   ⚠️ No delay metric found. Available: {list(metrics.keys())}")
 
-    # 🆕 FALLBACK: Add test data if no real data found
-    if len(auth_declines) == 0 and len(CACHE["authorization"]) == 0:
-        print("\n⚠️ No authorization data found - using test data")
-        auth_declines = [10, 12, 15, 11, 13]
-        auth_labels = ["Sample 1", "Sample 2", "Sample 3", "Sample 4", "Sample 5"]
-    
-    if len(settlement_delays) == 0 and len(CACHE["settlement"]) == 0:
-        print("\n⚠️ No settlement data found - using test data")
-        settlement_delays = [1.5, 1.8, 2.0, 1.6, 1.9]
-        settlement_labels = ["Sample 1", "Sample 2", "Sample 3", "Sample 4", "Sample 5"]
+    # ── Fallback sample data (no uploads yet) ─────────────────────────────
+    if not invoice_rejections and not CACHE["invoice"]:
+        print("\n⚠️ No invoice data — using illustrative sample data")
+        invoice_rejections = [8, 11, 14, 9, 12]
+        invoice_labels     = ["Supplier A", "Supplier B", "Supplier C", "Supplier D", "Supplier E"]
+
+    if not disbursement_delays and not CACHE["disbursement"]:
+        print("\n⚠️ No disbursement data — using illustrative sample data")
+        disbursement_delays = [2.1, 3.4, 1.8, 4.2, 2.9]
+        disbursement_labels  = ["Batch 1", "Batch 2", "Batch 3", "Batch 4", "Batch 5"]
 
     print(f"\n📊 Final Data for Charts:")
-    print(f"   Auth declines: {auth_declines}")
-    print(f"   Auth labels: {auth_labels}")
-    print(f"   Settlement delays: {settlement_delays}")
-    print(f"   Settlement labels: {settlement_labels}")
+    print(f"   Invoice rejections : {invoice_rejections}  labels: {invoice_labels}")
+    print(f"   Disbursement delays: {disbursement_delays} labels: {disbursement_labels}")
 
-    # Calculate averages and thresholds
-    auth_avg = round(sum(auth_declines) / len(auth_declines), 2) if auth_declines else 0
-    settlement_avg = round(sum(settlement_delays) / len(settlement_delays), 2) if settlement_delays else 0
-    
-    auth_threshold = round(auth_avg * 1.2, 2) if auth_avg > 0 else 15
-    settlement_threshold = round(settlement_avg * 1.25, 2) if settlement_avg > 0 else 2.5
+    # Averages & dynamic thresholds
+    inv_avg  = round(sum(invoice_rejections)  / len(invoice_rejections),  2) if invoice_rejections  else 0
+    dis_avg  = round(sum(disbursement_delays) / len(disbursement_delays), 2) if disbursement_delays else 0
 
+    inv_threshold = round(inv_avg * 1.2,  2) if inv_avg  > 0 else 15
+    dis_threshold = round(dis_avg * 1.25, 2) if dis_avg  > 0 else 3.0
+
+    # ── Response — key names kept IDENTICAL to original so the frontend
+    #    chart-rendering code requires zero changes. ─────────────────────
     response_data = {
-        "authorization": {
-            "avg_declines": auth_avg,
-            "threshold": auth_threshold,
-            "data_points": auth_declines,
-            "labels": auth_labels,
-            "has_data": len(auth_declines) > 0
+        "authorization": {               # ← frontend still reads this key
+            "avg_declines":  inv_avg,    # semantically = avg invoice rejection rate
+            "threshold":     inv_threshold,
+            "data_points":   invoice_rejections,
+            "labels":        invoice_labels,
+            "has_data":      len(invoice_rejections) > 0,
+            # Extra SCF-specific fields (available for future UI use)
+            "domain_label":  "Invoice Rejection Rate",
+            "unit":          "%"
         },
-        "settlement": {
-            "avg_delay_hours": settlement_avg,
-            "threshold": settlement_threshold,
-            "data_points": settlement_delays,
-            "labels": settlement_labels,
-            "has_data": len(settlement_delays) > 0
+        "settlement": {                  # ← frontend still reads this key
+            "avg_delay_hours": dis_avg,  # semantically = avg disbursement delay (days)
+            "threshold":       dis_threshold,
+            "data_points":     disbursement_delays,
+            "labels":          disbursement_labels,
+            "has_data":        len(disbursement_delays) > 0,
+            # Extra SCF-specific fields
+            "domain_label":    "Disbursement Delay",
+            "unit":            "days"
         }
     }
-    
+
     print(f"\n✅ Returning response:")
-    print(f"   Authorization has_data: {response_data['authorization']['has_data']}")
-    print(f"   Settlement has_data: {response_data['settlement']['has_data']}")
+    print(f"   Invoice has_data:      {response_data['authorization']['has_data']}")
+    print(f"   Disbursement has_data: {response_data['settlement']['has_data']}")
     print("="*60 + "\n")
-    
+
     return jsonify(response_data)
 
 
@@ -445,24 +486,24 @@ def debug_cache():
     """Debug endpoint to inspect cache contents"""
     return jsonify({
         "cache_status": {
-            "authorization_count": len(CACHE["authorization"]),
-            "settlement_count": len(CACHE["settlement"])
+            "invoice_count":      len(CACHE["invoice"]),
+            "disbursement_count": len(CACHE["disbursement"])
         },
-        "authorization_reports": [
+        "invoice_reports": [
             {
-                "index": idx,
-                "keys": list(report.keys()),
+                "index":      idx,
+                "keys":       list(report.keys()),
                 "key_metrics": list(report.get("key_metrics", {}).keys()) if report.get("key_metrics") else []
             }
-            for idx, report in enumerate(CACHE["authorization"])
+            for idx, report in enumerate(CACHE["invoice"])
         ],
-        "settlement_reports": [
+        "disbursement_reports": [
             {
-                "index": idx,
-                "keys": list(report.keys()),
+                "index":      idx,
+                "keys":       list(report.keys()),
                 "key_metrics": list(report.get("key_metrics", {}).keys()) if report.get("key_metrics") else []
             }
-            for idx, report in enumerate(CACHE["settlement"])
+            for idx, report in enumerate(CACHE["disbursement"])
         ]
     })
 
@@ -470,12 +511,5 @@ def debug_cache():
 # -------------------- MAIN --------------------
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    print(f"🚀 Starting Visa Payment Intelligence Platform on port {port}")
-    print(f"📁 Base directory: {BASE_DIR}")
-    print(f"🔍 Debug endpoint available at: http://localhost:{port}/debug/cache")
-    
-    # Increase max content length to handle larger files (50MB)
-    app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
-    
-    app.run(host="0.0.0.0", port=port, debug=True, threaded=True)
+    port = int(os.environ.get("PORT", 7860))
+    app.run(host="0.0.0.0", port=port)

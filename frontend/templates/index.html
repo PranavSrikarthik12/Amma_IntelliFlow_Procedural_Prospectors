@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Techathon 2.0 | Procedural Prospectors</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+
+:root{
+  --c-bg:#03050a;
+  --c-glow:#00f5d4;
+  --c-accent:#ff6b35;
+  --c-purple:#7c3aed;
+  --c-blue:#0ea5e9;
+  --c-white:#f0f4ff;
+  --c-muted:#475569;
+}
+
+html{scroll-behavior:smooth;overflow-x:hidden;}
+
+body{
+  background:var(--c-bg);
+  color:var(--c-white);
+  font-family:'DM Sans',sans-serif;
+  overflow-x:hidden;
+  cursor:none;
+}
+
+/* CUSTOM CURSOR */
+.cursor{
+  position:fixed;
+  width:12px;height:12px;
+  background:var(--c-glow);
+  border-radius:50%;
+  pointer-events:none;
+  z-index:9999;
+  transition:transform .1s;
+  mix-blend-mode:screen;
+  top:0;left:0;
+}
+.cursor-ring{
+  position:fixed;
+  width:40px;height:40px;
+  border:1px solid rgba(0,245,212,.4);
+  border-radius:50%;
+  pointer-events:none;
+  z-index:9998;
+  top:0;left:0;
+}
+
+/* NOISE OVERLAY */
+body::before{
+  content:'';
+  position:fixed;inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.04'/%3E%3C/svg%3E");
+  pointer-events:none;
+  z-index:9000;
+  opacity:.6;
+}
+
+/* CANVAS BACKGROUND */
+#bg-canvas{position:fixed;inset:0;z-index:0;}
+
+/* LOADER */
+#loader{
+  position:fixed;inset:0;
+  background:var(--c-bg);
+  z-index:8000;
+  display:flex;align-items:center;justify-content:center;
+  flex-direction:column;
+  gap:20px;
+  transition:opacity .8s ease, visibility .8s;
+}
+#loader.hide{opacity:0;visibility:hidden;pointer-events:none;}
+
+.loader-text{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(2rem,6vw,5rem);
+  letter-spacing:.3em;
+  background:linear-gradient(90deg,var(--c-glow),var(--c-blue),var(--c-purple),var(--c-glow));
+  background-size:300%;
+  -webkit-background-clip:text;color:transparent;
+  animation:shimmer 1.5s linear infinite;
+}
+.loader-bar{
+  width:240px;height:2px;
+  background:rgba(255,255,255,.08);
+  border-radius:2px;overflow:hidden;
+}
+.loader-fill{
+  height:100%;
+  background:linear-gradient(90deg,var(--c-glow),var(--c-blue));
+  width:0%;
+  animation:loadFill 1.8s ease forwards;
+  border-radius:2px;
+}
+.loader-status{
+  font-family:'Space Mono',monospace;
+  font-size:.65rem;letter-spacing:.3em;color:#334155;
+  animation:statusCycle 1.8s ease forwards;
+}
+@keyframes loadFill{to{width:100%;}}
+@keyframes statusCycle{
+  0%{content:'BOOTING SYSTEM...';}
+  100%{opacity:0;}
+}
+
+/* MAIN CONTENT */
+main{position:relative;z-index:10;}
+
+/* ─── SECTION 1 – HERO ─── */
+#hero{
+  height:100vh;min-height:700px;
+  display:flex;align-items:center;justify-content:center;
+  text-align:center;
+  padding:0 20px;
+  position:relative;
+  overflow:hidden;
+}
+
+.hero-eyebrow{
+  font-family:'Space Mono',monospace;
+  font-size:.75rem;letter-spacing:.4em;
+  color:var(--c-glow);
+  text-transform:uppercase;
+  opacity:0;
+  animation:riseUp .8s ease .3s forwards;
+  display:flex;align-items:center;gap:12px;justify-content:center;
+  margin-bottom:24px;
+}
+.hero-eyebrow::before,.hero-eyebrow::after{
+  content:'';display:block;width:40px;height:1px;
+  background:var(--c-glow);opacity:.4;
+}
+
+.hero-title{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(4.5rem,13vw,13rem);
+  line-height:.88;
+  letter-spacing:-.02em;
+  position:relative;
+}
+.title-line{display:block;overflow:hidden;}
+.title-word{
+  display:inline-block;
+  opacity:0;
+  transform:translateY(110%);
+  animation:wordReveal .9s cubic-bezier(.16,1,.3,1) forwards;
+}
+.title-word.glow-text{
+  background:linear-gradient(135deg,var(--c-glow) 0%,var(--c-blue) 50%,var(--c-purple) 100%);
+  -webkit-background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 40px rgba(0,245,212,.35));
+}
+.t1{animation-delay:.5s;}.t2{animation-delay:.65s;}.t3{animation-delay:.8s;}
+
+.hero-sub{
+  font-size:clamp(.9rem,1.4vw,1.1rem);
+  color:var(--c-muted);
+  max-width:520px;margin:32px auto 0;
+  line-height:1.75;
+  opacity:0;
+  animation:riseUp .9s ease 1.1s forwards;
+}
+.hero-sub span{color:var(--c-glow);}
+
+.hero-cta-group{
+  display:flex;gap:16px;justify-content:center;flex-wrap:wrap;
+  margin-top:48px;
+  opacity:0;
+  animation:riseUp .9s ease 1.3s forwards;
+}
+
+.btn-primary-glow{
+  padding:14px 36px;border-radius:4px;border:none;
+  background:linear-gradient(135deg,var(--c-glow),var(--c-blue));
+  color:#03050a;
+  font-family:'Space Mono',monospace;font-weight:700;font-size:.85rem;
+  letter-spacing:.05em;cursor:pointer;
+  position:relative;overflow:hidden;
+  transition:transform .3s,box-shadow .3s;
+  text-decoration:none;display:inline-block;
+}
+.btn-primary-glow::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(135deg,transparent,rgba(255,255,255,.3),transparent);
+  transform:translateX(-100%);transition:transform .5s;
+}
+.btn-primary-glow:hover{transform:translateY(-3px);box-shadow:0 0 50px rgba(0,245,212,.45);}
+.btn-primary-glow:hover::after{transform:translateX(100%);}
+
+.btn-outline-glow{
+  padding:14px 36px;border-radius:4px;
+  border:1px solid rgba(0,245,212,.25);
+  background:transparent;color:var(--c-glow);
+  font-family:'Space Mono',monospace;font-weight:700;font-size:.85rem;
+  letter-spacing:.05em;cursor:pointer;
+  transition:all .3s;text-decoration:none;display:inline-block;
+}
+.btn-outline-glow:hover{border-color:var(--c-glow);background:rgba(0,245,212,.07);transform:translateY(-3px);}
+
+/* HERO GRID */
+.hero-grid{
+  position:absolute;inset:0;
+  background-image:
+    linear-gradient(rgba(0,245,212,.04) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,245,212,.04) 1px,transparent 1px);
+  background-size:60px 60px;
+  mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,black,transparent);
+  animation:gridPulse 4s ease-in-out infinite;
+}
+@keyframes gridPulse{0%,100%{opacity:.4;}50%{opacity:.9;}}
+
+/* HERO ORBIT RINGS */
+.orbit-container{
+  position:absolute;inset:0;
+  display:flex;align-items:center;justify-content:center;
+  pointer-events:none;
+}
+.orbit{
+  position:absolute;border-radius:50%;
+  border:1px solid rgba(0,245,212,.08);
+  animation:spin linear infinite;
+}
+.orbit::after{
+  content:'';position:absolute;
+  width:7px;height:7px;background:var(--c-glow);border-radius:50%;
+  top:-3.5px;left:50%;transform:translateX(-50%);
+  box-shadow:0 0 12px var(--c-glow),0 0 24px var(--c-glow);
+}
+.o1{width:280px;height:280px;animation-duration:10s;}
+.o2{width:480px;height:480px;animation-duration:18s;border-color:rgba(124,58,237,.1);}
+.o2::after{background:var(--c-purple);box-shadow:0 0 12px var(--c-purple);}
+.o3{width:680px;height:680px;animation-duration:28s;border-color:rgba(14,165,233,.07);animation-direction:reverse;}
+.o3::after{background:var(--c-blue);box-shadow:0 0 12px var(--c-blue);}
+.o4{width:920px;height:920px;animation-duration:42s;border-color:rgba(0,245,212,.035);}
+.o4::after{background:#ff6b35;box-shadow:0 0 12px #ff6b35;}
+
+@keyframes spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
+
+/* SCROLL INDICATOR */
+.scroll-hint{
+  position:absolute;bottom:40px;left:50%;transform:translateX(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+  opacity:0;animation:riseUp 1s ease 2s forwards;
+  font-family:'Space Mono',monospace;font-size:.6rem;letter-spacing:.25em;color:#334155;
+}
+.scroll-line{
+  width:1px;height:60px;
+  background:linear-gradient(to bottom,var(--c-glow),transparent);
+  animation:scrollPulse 2s ease-in-out infinite;
+}
+@keyframes scrollPulse{0%{transform:scaleY(0);transform-origin:top;opacity:0;}50%{transform:scaleY(1);opacity:1;}100%{transform:scaleY(0);transform-origin:bottom;opacity:0;}}
+
+/* ─── MARQUEE BAND ─── */
+.marquee-band{
+  overflow:hidden;
+  border-top:1px solid rgba(255,255,255,.05);
+  border-bottom:1px solid rgba(255,255,255,.05);
+  background:rgba(255,255,255,.015);
+  padding:16px 0;
+  position:relative;z-index:10;
+}
+.marquee-track{
+  display:flex;gap:0;
+  animation:marqueeScroll 20s linear infinite;
+  width:max-content;
+}
+.marquee-item{
+  font-family:'Space Mono',monospace;
+  font-size:.7rem;letter-spacing:.3em;
+  color:#334155;
+  padding:0 40px;
+  white-space:nowrap;
+}
+.marquee-item span{color:var(--c-glow);margin-right:8px;}
+@keyframes marqueeScroll{from{transform:translateX(0);}to{transform:translateX(-50%);}}
+
+/* ─── SECTION 2 – PROBLEM ─── */
+#problem{padding:130px 40px;position:relative;overflow:hidden;}
+
+.section-label{
+  font-family:'Space Mono',monospace;font-size:.7rem;letter-spacing:.4em;
+  color:var(--c-accent);text-transform:uppercase;
+  display:flex;align-items:center;gap:12px;margin-bottom:60px;
+}
+.section-label::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--c-accent),transparent);}
+
+.problem-grid{
+  display:grid;grid-template-columns:1fr 1fr;
+  gap:80px;align-items:center;max-width:1200px;margin:0 auto;
+}
+
+.problem-heading{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(3rem,5.5vw,5.5rem);line-height:.97;letter-spacing:.01em;
+}
+.problem-heading em{font-style:normal;color:var(--c-accent);display:block;}
+
+.problem-body{
+  font-size:.95rem;color:#94a3b8;line-height:1.8;margin-top:24px;max-width:440px;
+}
+.problem-body strong{color:var(--c-white);}
+
+.pain-list{display:flex;flex-direction:column;gap:14px;margin-top:40px;}
+
+.pain-item{
+  display:flex;align-items:flex-start;gap:16px;
+  padding:20px 24px;border:1px solid rgba(255,255,255,.05);
+  border-radius:8px;background:rgba(255,255,255,.02);
+  position:relative;overflow:hidden;
+  opacity:0;transform:translateX(-40px);
+  transition:all .7s cubic-bezier(.16,1,.3,1);
+}
+.pain-item.visible{opacity:1;transform:translateX(0);}
+.pain-item::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(to bottom,var(--c-accent),var(--c-purple));
+}
+.pain-item:hover{background:rgba(255,107,53,.04);border-color:rgba(255,107,53,.18);transform:translateX(4px) !important;}
+.pain-icon{font-size:1.3rem;flex-shrink:0;margin-top:2px;}
+.pain-text strong{display:block;color:var(--c-white);font-size:.9rem;margin-bottom:4px;}
+.pain-text span{color:var(--c-muted);font-size:.82rem;line-height:1.5;}
+
+.problem-visual{position:relative;display:flex;align-items:center;justify-content:center;}
+
+/* ─── SECTION 3 – SOLUTION ─── */
+#solution{
+  padding:130px 40px;position:relative;
+  background:rgba(255,255,255,.012);
+}
+
+.solution-inner{max-width:1200px;margin:0 auto;}
+.solution-headline{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(2.5rem,5vw,5rem);
+  text-align:center;margin-bottom:80px;letter-spacing:.02em;
+}
+.solution-headline span{background:linear-gradient(90deg,var(--c-glow),var(--c-blue));-webkit-background-clip:text;color:transparent;}
+
+.agents-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;}
+
+.agent-card{
+  padding:32px;border-radius:10px;
+  border:1px solid rgba(255,255,255,.065);
+  background:rgba(255,255,255,.025);
+  position:relative;overflow:hidden;
+  opacity:0;transform:translateY(50px);
+  transition:all .7s cubic-bezier(.16,1,.3,1);
+}
+.agent-card.visible{opacity:1;transform:translateY(0);}
+.agent-card::before{
+  content:'';position:absolute;inset:0;
+  background:radial-gradient(circle at top left,var(--card-glow,rgba(0,245,212,.05)) 0%,transparent 65%);
+  opacity:0;transition:opacity .4s;
+}
+.agent-card:hover::before{opacity:1;}
+.agent-card:hover{border-color:var(--card-border,rgba(0,245,212,.2));transform:translateY(-8px) !important;box-shadow:0 24px 48px rgba(0,0,0,.4);}
+.agent-num{
+  font-family:'Bebas Neue',sans-serif;font-size:4.5rem;line-height:1;
+  color:rgba(255,255,255,.05);position:absolute;top:12px;right:20px;
+}
+.agent-icon{font-size:2rem;margin-bottom:16px;}
+.agent-name{
+  font-family:'Space Mono',monospace;font-size:.68rem;
+  letter-spacing:.2em;color:var(--card-accent,var(--c-glow));
+  text-transform:uppercase;margin-bottom:8px;
+}
+.agent-title{font-size:1.05rem;font-weight:500;margin-bottom:12px;color:var(--c-white);}
+.agent-desc{font-size:.83rem;color:var(--c-muted);line-height:1.65;}
+
+/* ─── SECTION 4 – PIPELINE ─── */
+#pipeline{padding:130px 40px;overflow:hidden;}
+.pipeline-inner{max-width:1100px;margin:0 auto;}
+.pipeline-title{
+  font-family:'Bebas Neue',sans-serif;font-size:clamp(2.5rem,5vw,5rem);
+  margin-bottom:80px;text-align:center;
+}
+
+.flow-track{
+  display:flex;align-items:center;
+  overflow-x:auto;padding-bottom:24px;
+  scrollbar-width:thin;scrollbar-color:rgba(0,245,212,.3) transparent;
+}
+
+.flow-step{
+  flex:1;min-width:120px;text-align:center;
+  opacity:0;animation:stepReveal .6s ease forwards;
+}
+.flow-step:nth-child(1){animation-delay:.2s;}
+.flow-step:nth-child(3){animation-delay:.4s;}
+.flow-step:nth-child(5){animation-delay:.6s;}
+.flow-step:nth-child(7){animation-delay:.8s;}
+.flow-step:nth-child(9){animation-delay:1s;}
+.flow-step:nth-child(11){animation-delay:1.2s;}
+@keyframes stepReveal{to{opacity:1;}}
+
+.step-bubble{
+  width:72px;height:72px;border-radius:50%;
+  background:rgba(255,255,255,.03);border:1.5px solid rgba(0,245,212,.18);
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.5rem;margin:0 auto 14px;position:relative;transition:all .4s;
+}
+.step-bubble::after{
+  content:'';position:absolute;inset:-6px;border-radius:50%;
+  border:1px solid rgba(0,245,212,.08);
+  animation:ripple 2.5s ease-in-out infinite;
+}
+.flow-step:hover .step-bubble{
+  border-color:var(--c-glow);box-shadow:0 0 30px rgba(0,245,212,.25);transform:scale(1.12);
+}
+@keyframes ripple{0%,100%{transform:scale(1);opacity:.4;}50%{transform:scale(1.25);opacity:0;}}
+
+.step-label{
+  font-family:'Space Mono',monospace;font-size:.65rem;
+  letter-spacing:.08em;color:var(--c-muted);line-height:1.45;
+}
+
+.flow-arrow{
+  flex:0 0 32px;text-align:center;color:rgba(0,245,212,.25);font-size:1.1rem;
+  animation:arrowPulse 2s ease-in-out infinite;
+}
+@keyframes arrowPulse{0%,100%{color:rgba(0,245,212,.15);}50%{color:rgba(0,245,212,.7);}}
+
+.data-stream{
+  margin-top:60px;height:3px;background:rgba(255,255,255,.04);
+  border-radius:4px;overflow:hidden;position:relative;
+}
+.data-packet{
+  position:absolute;height:100%;width:100px;border-radius:4px;
+  background:linear-gradient(90deg,transparent,var(--c-glow),transparent);
+  animation:dataFlow 2.2s linear infinite;
+}
+.data-packet:nth-child(2){animation-delay:.7s;background:linear-gradient(90deg,transparent,var(--c-blue),transparent);}
+.data-packet:nth-child(3){animation-delay:1.4s;background:linear-gradient(90deg,transparent,var(--c-purple),transparent);}
+@keyframes dataFlow{from{left:-100px;}to{left:100%;}}
+
+/* ─── SECTION 5 – STATS ─── */
+#stats{
+  padding:110px 40px;
+  background:radial-gradient(ellipse 80% 60% at 50% 50%,rgba(0,245,212,.04),transparent);
+}
+.stats-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+  max-width:960px;margin:0 auto;
+  border:1px solid rgba(255,255,255,.055);border-radius:12px;overflow:hidden;
+}
+.stat-block{
+  padding:52px 28px;text-align:center;
+  background:rgba(255,255,255,.02);
+  border-right:1px solid rgba(255,255,255,.055);
+  position:relative;overflow:hidden;
+  opacity:0;transform:scale(.9);
+  transition:all .7s cubic-bezier(.16,1,.3,1);
+}
+.stat-block:last-child{border-right:none;}
+.stat-block.visible{opacity:1;transform:scale(1);}
+.stat-block::before{
+  content:'';position:absolute;inset:0;
+  background:radial-gradient(circle at center,rgba(0,245,212,.07),transparent);
+  opacity:0;transition:opacity .4s;
+}
+.stat-block:hover::before{opacity:1;}
+.stat-num{
+  font-family:'Bebas Neue',sans-serif;font-size:3.8rem;
+  background:linear-gradient(135deg,var(--c-glow),var(--c-blue));
+  -webkit-background-clip:text;color:transparent;
+  line-height:1;margin-bottom:10px;
+}
+.stat-label{font-size:.78rem;color:var(--c-muted);letter-spacing:.03em;line-height:1.5;}
+
+/* ─── SECTION 6 – CTA ─── */
+#cta{
+  padding:130px 40px;text-align:center;
+  position:relative;overflow:hidden;
+}
+#cta::before{
+  content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse 60% 80% at 50% 100%,rgba(124,58,237,.1),transparent);
+}
+.cta-tag{
+  font-family:'Space Mono',monospace;font-size:.7rem;letter-spacing:.4em;
+  color:var(--c-purple);text-transform:uppercase;margin-bottom:24px;
+  opacity:0;animation:riseUp .8s ease .2s forwards;
+}
+.cta-heading{
+  font-family:'Bebas Neue',sans-serif;font-size:clamp(3rem,8vw,7.5rem);
+  line-height:.92;margin-bottom:32px;
+  opacity:0;animation:riseUp .9s ease .4s forwards;
+}
+.cta-heading span{
+  background:linear-gradient(135deg,var(--c-purple),var(--c-blue),var(--c-glow));
+  -webkit-background-clip:text;color:transparent;
+}
+.cta-sub{
+  font-size:.95rem;color:var(--c-muted);max-width:460px;margin:0 auto 48px;
+  line-height:1.7;opacity:0;animation:riseUp .9s ease .6s forwards;
+}
+.cta-btns{
+  display:flex;gap:16px;justify-content:center;flex-wrap:wrap;
+  opacity:0;animation:riseUp .9s ease .8s forwards;
+}
+.team-badge{
+  display:inline-flex;align-items:center;gap:10px;
+  padding:8px 22px;border-radius:100px;
+  border:1px solid rgba(124,58,237,.3);background:rgba(124,58,237,.06);
+  font-family:'Space Mono',monospace;font-size:.72rem;
+  letter-spacing:.12em;color:var(--c-purple);
+  margin-bottom:48px;
+  opacity:0;animation:riseUp .8s ease 1s forwards;
+}
+.team-dot{width:6px;height:6px;border-radius:50%;background:var(--c-purple);animation:blink 1.8s ease-in-out infinite;}
+@keyframes blink{0%,100%{opacity:.2;}50%{opacity:1;}}
+
+/* FLOATING PARTICLES */
+.particles{position:fixed;inset:0;pointer-events:none;z-index:1;}
+.particle{
+  position:absolute;width:2px;height:2px;border-radius:50%;
+  opacity:0;animation:particleFloat linear infinite;
+}
+@keyframes particleFloat{
+  0%{opacity:0;transform:translateY(100vh) scale(0);}
+  10%{opacity:.7;transform:translateY(90vh) scale(1);}
+  90%{opacity:.7;}
+  100%{opacity:0;transform:translateY(-20px);}
+}
+
+/* FOOTER */
+footer{
+  padding:28px 40px;border-top:1px solid rgba(255,255,255,.05);
+  display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;
+  position:relative;z-index:10;
+}
+.footer-logo{
+  font-family:'Bebas Neue',sans-serif;font-size:1.4rem;
+  background:linear-gradient(90deg,var(--c-glow),var(--c-blue));
+  -webkit-background-clip:text;color:transparent;
+}
+.footer-copy{font-family:'Space Mono',monospace;font-size:.68rem;color:#334155;}
+
+/* ANIMATIONS */
+@keyframes riseUp{from{opacity:0;transform:translateY(28px);}to{opacity:1;transform:translateY(0);}}
+@keyframes wordReveal{from{opacity:0;transform:translateY(110%);}to{opacity:1;transform:translateY(0);}}
+@keyframes shimmer{0%{background-position:0%;}100%{background-position:200%;}}
+
+/* SCAN LINE */
+.scan-line{
+  position:fixed;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--c-glow),transparent);
+  opacity:.12;animation:scanDown 7s linear infinite;
+  pointer-events:none;z-index:9001;
+}
+@keyframes scanDown{from{top:-2px;}to{top:100%;}}
+
+/* RESPONSIVE */
+@media(max-width:900px){
+  .problem-grid{grid-template-columns:1fr;gap:60px;}
+  .problem-visual{display:none;}
+}
+@media(max-width:600px){
+  #hero{padding:0 20px;}
+  #problem,#solution,#pipeline,#stats,#cta{padding:80px 20px;}
+  .stats-grid{grid-template-columns:1fr 1fr;}
+  .flow-track{flex-direction:column;align-items:center;}
+  .flow-arrow{transform:rotate(90deg);}
+}
+</style>
+</head>
+<body>
+
+<div class="cursor" id="cursor"></div>
+<div class="cursor-ring" id="cursor-ring"></div>
+<div class="scan-line"></div>
+
+<!-- LOADER -->
+<div id="loader">
+  <div class="loader-text">TECHATHON 2.0</div>
+  <div style="font-family:'Space Mono',monospace;font-size:.62rem;letter-spacing:.35em;color:#1e293b;margin-bottom:4px;">PROCEDURAL PROSPECTORS</div>
+  <div class="loader-bar"><div class="loader-fill"></div></div>
+  <div class="loader-status">INITIALIZING AI LAYER...</div>
+</div>
+
+<canvas id="bg-canvas"></canvas>
+<div class="particles" id="particles"></div>
+
+<main>
+
+<!-- ── HERO ── -->
+<section id="hero">
+  <div class="hero-grid"></div>
+  <div class="orbit-container">
+    <div class="orbit o1"></div>
+    <div class="orbit o2"></div>
+    <div class="orbit o3"></div>
+    <div class="orbit o4"></div>
+  </div>
+
+  <div style="position:relative;z-index:2;max-width:900px;">
+    <div class="hero-eyebrow">Techathon 2.0 — Procedural Prospectors</div>
+    <h1 class="hero-title">
+      <span class="title-line"><span class="title-word t1">SUPPLY</span></span>
+      <span class="title-line"><span class="title-word glow-text t2">CHAIN</span></span>
+      <span class="title-line"><span class="title-word t3">INTELLIGENCE</span></span>
+    </h1>
+    <p class="hero-sub">
+      An <span>AI-powered Finance Intelligence Layer</span> that bridges
+      ERP systems and real-time financial decision-making — making supply chains transparent, predictive, and smart.
+    </p>
+    <div class="hero-cta-group">
+      <a href="/dashboard" class="btn-primary-glow">Launch Platform →</a>
+      <a href="#problem" class="btn-outline-glow">Explore the Problem</a>
+    </div>
+  </div>
+
+  <div class="scroll-hint">
+    <span>SCROLL</span>
+    <div class="scroll-line"></div>
+  </div>
+</section>
+
+<!-- MARQUEE BAND -->
+<div class="marquee-band">
+  <div class="marquee-track" id="marquee">
+    <span class="marquee-item"><span>◆</span> AI-POWERED FINANCE</span>
+    <span class="marquee-item"><span>◆</span> MULTI-AGENT SYSTEM</span>
+    <span class="marquee-item"><span>◆</span> ERP INTELLIGENCE</span>
+    <span class="marquee-item"><span>◆</span> REAL-TIME RISK ANALYSIS</span>
+    <span class="marquee-item"><span>◆</span> INVOICE AUTOMATION</span>
+    <span class="marquee-item"><span>◆</span> CASH-FLOW PREDICTION</span>
+    <span class="marquee-item"><span>◆</span> SUPPLY CHAIN FINANCE</span>
+    <span class="marquee-item"><span>◆</span> DYNAMIC EARLY PAYMENT</span>
+    <span class="marquee-item"><span>◆</span> AI-POWERED FINANCE</span>
+    <span class="marquee-item"><span>◆</span> MULTI-AGENT SYSTEM</span>
+    <span class="marquee-item"><span>◆</span> ERP INTELLIGENCE</span>
+    <span class="marquee-item"><span>◆</span> REAL-TIME RISK ANALYSIS</span>
+    <span class="marquee-item"><span>◆</span> INVOICE AUTOMATION</span>
+    <span class="marquee-item"><span>◆</span> CASH-FLOW PREDICTION</span>
+    <span class="marquee-item"><span>◆</span> SUPPLY CHAIN FINANCE</span>
+    <span class="marquee-item"><span>◆</span> DYNAMIC EARLY PAYMENT</span>
+  </div>
+</div>
+
+<!-- ── PROBLEM ── -->
+<section id="problem">
+  <div class="problem-grid">
+    <div>
+      <div class="section-label">Problem Statement</div>
+      <h2 class="problem-heading">
+        The Supply Chain<br>
+        <em>Finance Gap</em>
+      </h2>
+      <p class="problem-body">
+        Small and mid-size suppliers are <strong>chronically underpaid, paid late</strong>,
+        or stuck waiting on invoice approvals with zero visibility into why. Billions in working
+        capital remain frozen — not from lack of resources, but lack of <strong>intelligence</strong>.
+      </p>
+      <div class="pain-list">
+        <div class="pain-item">
+          <div class="pain-icon">📉</div>
+          <div class="pain-text">
+            <strong>Cash-Flow Blindness</strong>
+            <span>No real-time surfacing of liquidity risk across supplier tiers and invoice cycles.</span>
+          </div>
+        </div>
+        <div class="pain-item">
+          <div class="pain-icon">⏳</div>
+          <div class="pain-text">
+            <strong>Invoice Bottlenecks</strong>
+            <span>Payment delays go unexplained, eroding supplier trust and chain resilience.</span>
+          </div>
+        </div>
+        <div class="pain-item">
+          <div class="pain-icon">🔍</div>
+          <div class="pain-text">
+            <strong>Zero ERP Intelligence</strong>
+            <span>Existing ERP systems generate data — but have no AI layer to act on it.</span>
+          </div>
+        </div>
+        <div class="pain-item">
+          <div class="pain-icon">💡</div>
+          <div class="pain-text">
+            <strong>Missed Financing Opportunities</strong>
+            <span>Dynamic early-payment programs never recommended at the right moment.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SVG VISUAL -->
+    <div class="problem-visual">
+      <svg width="420" height="420" viewBox="0 0 420 420" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="rg1" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#00f5d4" stop-opacity=".18"/>
+            <stop offset="100%" stop-color="#00f5d4" stop-opacity="0"/>
+          </radialGradient>
+          <filter id="glow1"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        </defs>
+        <!-- rings -->
+        <circle cx="210" cy="210" r="195" stroke="rgba(0,245,212,0.04)" stroke-width="1"/>
+        <circle cx="210" cy="210" r="155" stroke="rgba(0,245,212,0.07)" stroke-width="1"/>
+        <circle cx="210" cy="210" r="112" stroke="rgba(0,245,212,0.1)" stroke-width="1"/>
+        <!-- rotating arc -->
+        <circle cx="210" cy="210" r="155" stroke="rgba(0,245,212,0.3)" stroke-width="1.5"
+          stroke-dasharray="30 270" stroke-linecap="round">
+          <animateTransform attributeName="transform" type="rotate" from="0 210 210" to="360 210 210" dur="8s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="210" cy="210" r="112" stroke="rgba(124,58,237,0.35)" stroke-width="1.5"
+          stroke-dasharray="20 184" stroke-linecap="round">
+          <animateTransform attributeName="transform" type="rotate" from="0 210 210" to="-360 210 210" dur="6s" repeatCount="indefinite"/>
+        </circle>
+        <!-- center glow -->
+        <circle cx="210" cy="210" r="42" fill="url(#rg1)"/>
+        <circle cx="210" cy="210" r="30" stroke="#00f5d4" stroke-width="1.5" fill="none" filter="url(#glow1)"/>
+        <text x="210" y="206" text-anchor="middle" font-family="'Bebas Neue',cursive" font-size="10" fill="#00f5d4" letter-spacing="2">AI</text>
+        <text x="210" y="218" text-anchor="middle" font-family="'Bebas Neue',cursive" font-size="10" fill="#00f5d4" letter-spacing="2">CORE</text>
+        <!-- nodes with animated circles -->
+        <!-- ERP -->
+        <circle cx="210" cy="48" r="30" fill="rgba(255,107,53,0.08)" stroke="rgba(255,107,53,0.35)" stroke-width="1.5"/>
+        <text x="210" y="44" text-anchor="middle" font-size="16">🏭</text>
+        <text x="210" y="60" text-anchor="middle" font-family="'Space Mono',monospace" font-size="8" fill="#ff6b35" letter-spacing="1">ERP</text>
+        <!-- RISK -->
+        <circle cx="375" cy="135" r="28" fill="rgba(14,165,233,0.08)" stroke="rgba(14,165,233,0.35)" stroke-width="1.5"/>
+        <text x="375" y="131" text-anchor="middle" font-size="15">📊</text>
+        <text x="375" y="147" text-anchor="middle" font-family="'Space Mono',monospace" font-size="7" fill="#0ea5e9" letter-spacing="1">RISK</text>
+        <!-- FINANCE -->
+        <circle cx="375" cy="285" r="28" fill="rgba(124,58,237,0.08)" stroke="rgba(124,58,237,0.35)" stroke-width="1.5"/>
+        <text x="375" y="281" text-anchor="middle" font-size="15">💸</text>
+        <text x="375" y="297" text-anchor="middle" font-family="'Space Mono',monospace" font-size="7" fill="#a78bfa" letter-spacing="1">FIN</text>
+        <!-- CHAIN -->
+        <circle cx="210" cy="372" r="28" fill="rgba(0,245,212,0.08)" stroke="rgba(0,245,212,0.35)" stroke-width="1.5"/>
+        <text x="210" y="368" text-anchor="middle" font-size="15">🔗</text>
+        <text x="210" y="384" text-anchor="middle" font-family="'Space Mono',monospace" font-size="7" fill="#00f5d4" letter-spacing="1">CHAIN</text>
+        <!-- ALERTS -->
+        <circle cx="45" cy="285" r="28" fill="rgba(255,107,53,0.08)" stroke="rgba(255,107,53,0.28)" stroke-width="1.5"/>
+        <text x="45" y="281" text-anchor="middle" font-size="15">⚡</text>
+        <text x="45" y="297" text-anchor="middle" font-family="'Space Mono',monospace" font-size="7" fill="#ff6b35" letter-spacing="1">ALERTS</text>
+        <!-- DATA -->
+        <circle cx="45" cy="135" r="28" fill="rgba(14,165,233,0.08)" stroke="rgba(14,165,233,0.28)" stroke-width="1.5"/>
+        <text x="45" y="131" text-anchor="middle" font-size="15">📡</text>
+        <text x="45" y="147" text-anchor="middle" font-family="'Space Mono',monospace" font-size="7" fill="#0ea5e9" letter-spacing="1">DATA</text>
+        <!-- animated connection lines -->
+        <line x1="210" y1="78" x2="210" y2="178" stroke="rgba(0,245,212,0.18)" stroke-width="1" stroke-dasharray="5,5">
+          <animate attributeName="stroke-dashoffset" values="0;-20" dur="1s" repeatCount="indefinite"/>
+        </line>
+        <line x1="347" y1="157" x2="238" y2="195" stroke="rgba(14,165,233,0.18)" stroke-width="1" stroke-dasharray="5,5">
+          <animate attributeName="stroke-dashoffset" values="0;-20" dur="1.3s" repeatCount="indefinite"/>
+        </line>
+        <line x1="347" y1="263" x2="238" y2="225" stroke="rgba(124,58,237,0.18)" stroke-width="1" stroke-dasharray="5,5">
+          <animate attributeName="stroke-dashoffset" values="0;-20" dur=".9s" repeatCount="indefinite"/>
+        </line>
+        <line x1="210" y1="344" x2="210" y2="242" stroke="rgba(0,245,212,0.18)" stroke-width="1" stroke-dasharray="5,5">
+          <animate attributeName="stroke-dashoffset" values="0;-20" dur="1.1s" repeatCount="indefinite"/>
+        </line>
+        <line x1="73" y1="263" x2="182" y2="225" stroke="rgba(255,107,53,0.15)" stroke-width="1" stroke-dasharray="5,5">
+          <animate attributeName="stroke-dashoffset" values="0;-20" dur="1.4s" repeatCount="indefinite"/>
+        </line>
+        <line x1="73" y1="157" x2="182" y2="195" stroke="rgba(14,165,233,0.15)" stroke-width="1" stroke-dasharray="5,5">
+          <animate attributeName="stroke-dashoffset" values="0;-20" dur="1.2s" repeatCount="indefinite"/>
+        </line>
+        <!-- pulse dots -->
+        <circle r="4" fill="#00f5d4" opacity=".8">
+          <animateMotion dur="2s" repeatCount="indefinite" path="M 210 78 L 210 178"/>
+          <animate attributeName="opacity" values="0;1;1;0" dur="2s" repeatCount="indefinite"/>
+        </circle>
+        <circle r="4" fill="#0ea5e9" opacity=".8">
+          <animateMotion dur="2.5s" repeatCount="indefinite" path="M 347 157 L 238 195"/>
+          <animate attributeName="opacity" values="0;1;1;0" dur="2.5s" repeatCount="indefinite"/>
+        </circle>
+        <circle r="4" fill="#a78bfa" opacity=".8">
+          <animateMotion dur="2s" repeatCount="indefinite" path="M 347 263 L 238 225"/>
+          <animate attributeName="opacity" values="0;1;1;0" dur="2s" repeatCount="indefinite"/>
+        </circle>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- ── SOLUTION ── -->
+<section id="solution">
+  <div class="solution-inner">
+    <div class="section-label" style="justify-content:center;max-width:300px;margin:0 auto 60px;">Our Solution</div>
+    <h2 class="solution-headline">Meet the <span>Multi-Agent</span> AI System</h2>
+    <div class="agents-grid">
+      <div class="agent-card" style="--card-glow:rgba(0,245,212,.06);--card-border:rgba(0,245,212,.22);--card-accent:#00f5d4;">
+        <div class="agent-num">01</div>
+        <div class="agent-icon">🧠</div>
+        <div class="agent-name">Orchestrator Agent</div>
+        <div class="agent-title">Master Intelligence</div>
+        <div class="agent-desc">Routes, coordinates, and synthesizes all agent outputs into cohesive financial decisions across the entire supply chain network.</div>
+      </div>
+      <div class="agent-card" style="--card-glow:rgba(14,165,233,.06);--card-border:rgba(14,165,233,.22);--card-accent:#0ea5e9;">
+        <div class="agent-num">02</div>
+        <div class="agent-icon">📉</div>
+        <div class="agent-name">Risk Analysis Agent</div>
+        <div class="agent-title">Cash-Flow Sentinel</div>
+        <div class="agent-desc">Continuously surfaces cash-flow risk across all supplier tiers, flagging financial danger before it compounds into a crisis.</div>
+      </div>
+      <div class="agent-card" style="--card-glow:rgba(255,107,53,.06);--card-border:rgba(255,107,53,.22);--card-accent:#ff6b35;">
+        <div class="agent-num">03</div>
+        <div class="agent-icon">🔍</div>
+        <div class="agent-name">Invoice Intelligence Agent</div>
+        <div class="agent-title">Bottleneck Detector</div>
+        <div class="agent-desc">Scans ERP data to detect stalled invoices, explain payment delays, and accurately predict resolution timelines.</div>
+      </div>
+      <div class="agent-card" style="--card-glow:rgba(124,58,237,.06);--card-border:rgba(124,58,237,.22);--card-accent:#a78bfa;">
+        <div class="agent-num">04</div>
+        <div class="agent-icon">💡</div>
+        <div class="agent-name">Finance Recommender Agent</div>
+        <div class="agent-title">Dynamic Optimizer</div>
+        <div class="agent-desc">Dynamically recommends early-payment programs and working capital solutions at precisely the right moment in the cycle.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── PIPELINE ── -->
+<section id="pipeline">
+  <div class="pipeline-inner">
+    <div class="section-label" style="justify-content:center;max-width:280px;margin:0 auto 60px;">Data Pipeline</div>
+    <h2 class="pipeline-title">How It Flows</h2>
+    <div class="flow-track">
+      <div class="flow-step"><div class="step-bubble">🏭</div><div class="step-label">ERP<br>System</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="step-bubble">📥</div><div class="step-label">Data<br>Ingestion</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="step-bubble">🧠</div><div class="step-label">AI<br>Orchestrator</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="step-bubble">⚡</div><div class="step-label">Agent<br>Analysis</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="step-bubble">📊</div><div class="step-label">Insights<br>Layer</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="step-bubble">💸</div><div class="step-label">Finance<br>Action</div></div>
+    </div>
+    <div class="data-stream">
+      <div class="data-packet"></div>
+      <div class="data-packet"></div>
+      <div class="data-packet"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── STATS ── -->
+<section id="stats">
+  <div style="max-width:960px;margin:0 auto;">
+    <div class="section-label" style="justify-content:center;max-width:280px;margin:0 auto 60px;">Impact Numbers</div>
+    <div class="stats-grid">
+      <div class="stat-block"><div class="stat-num">$3.4T</div><div class="stat-label">working capital frozen in global supply chains</div></div>
+      <div class="stat-block"><div class="stat-num">68%</div><div class="stat-label">of SME suppliers experience late payments regularly</div></div>
+      <div class="stat-block"><div class="stat-num">40+</div><div class="stat-label">days average invoice approval delay in legacy ERPs</div></div>
+      <div class="stat-block"><div class="stat-num">0</div><div class="stat-label">AI intelligence layers between ERP and finance decisions</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── CTA ── -->
+<section id="cta">
+  <div style="position:relative;z-index:2;">
+    <div class="cta-tag">Procedural Prospectors — Techathon 2.0</div>
+    <h2 class="cta-heading">
+      Ready to<br>
+      <span>Reimagine</span><br>
+      Supply Chain Finance?
+    </h2>
+    <p class="cta-sub">One platform. Four AI agents. Infinite supply chain intelligence.</p>
+    <div class="team-badge"><div class="team-dot"></div>TEAM: PROCEDURAL PROSPECTORS</div>
+    <div class="cta-btns">
+      <a href="/dashboard" class="btn-primary-glow" style="padding:16px 52px;font-size:.9rem;">Launch Platform →</a>
+      <a href="#hero" class="btn-outline-glow" style="padding:16px 52px;font-size:.9rem;">↑ Back to Top</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="footer-logo">TECHATHON 2.0</div>
+  <div class="footer-copy">© 2025 Procedural Prospectors · Built with ❤️ and AI</div>
+</footer>
+
+<script>
+/* ── LOADER ── */
+window.addEventListener('load',()=>{
+  setTimeout(()=>{ document.getElementById('loader').classList.add('hide'); },2100);
+});
+
+/* ── CUSTOM CURSOR ── */
+const cursor=document.getElementById('cursor');
+const ring=document.getElementById('cursor-ring');
+let mx=0,my=0,rx=0,ry=0;
+document.addEventListener('mousemove',e=>{
+  mx=e.clientX; my=e.clientY;
+  cursor.style.left=(mx-6)+'px'; cursor.style.top=(my-6)+'px';
+});
+(function animRing(){
+  rx+=(mx-rx)*.1; ry+=(my-ry)*.1;
+  ring.style.left=(rx-20)+'px'; ring.style.top=(ry-20)+'px';
+  requestAnimationFrame(animRing);
+})();
+document.querySelectorAll('a,button,.agent-card,.pain-item,.stat-block,.step-bubble').forEach(el=>{
+  el.addEventListener('mouseenter',()=>{ cursor.style.transform='scale(2.5)'; ring.style.transform='scale(1.4)'; });
+  el.addEventListener('mouseleave',()=>{ cursor.style.transform='scale(1)'; ring.style.transform='scale(1)'; });
+});
+
+/* ── CANVAS BACKGROUND ── */
+const canvas=document.getElementById('bg-canvas');
+const ctx=canvas.getContext('2d');
+let W,H,dots=[];
+function resize(){ W=canvas.width=window.innerWidth; H=canvas.height=window.innerHeight; }
+resize(); window.addEventListener('resize',resize);
+for(let i=0;i<100;i++) dots.push({
+  x:Math.random()*window.innerWidth, y:Math.random()*window.innerHeight,
+  vx:(Math.random()-.5)*.2, vy:(Math.random()-.5)*.2,
+  r:Math.random()*1.4+.3, alpha:Math.random()*.4+.08
+});
+(function drawCanvas(){
+  ctx.clearRect(0,0,W,H);
+  for(let i=0;i<dots.length;i++){
+    for(let j=i+1;j<dots.length;j++){
+      const dx=dots[i].x-dots[j].x, dy=dots[i].y-dots[j].y;
+      const d=Math.sqrt(dx*dx+dy*dy);
+      if(d<130){ ctx.beginPath(); ctx.strokeStyle=`rgba(0,245,212,${.035*(1-d/130)})`; ctx.lineWidth=.5; ctx.moveTo(dots[i].x,dots[i].y); ctx.lineTo(dots[j].x,dots[j].y); ctx.stroke(); }
+    }
+    dots[i].x+=dots[i].vx; dots[i].y+=dots[i].vy;
+    if(dots[i].x<0||dots[i].x>W) dots[i].vx*=-1;
+    if(dots[i].y<0||dots[i].y>H) dots[i].vy*=-1;
+    ctx.beginPath(); ctx.arc(dots[i].x,dots[i].y,dots[i].r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(0,245,212,${dots[i].alpha})`; ctx.fill();
+  }
+  requestAnimationFrame(drawCanvas);
+})();
+
+/* ── PARTICLES ── */
+const pc=document.getElementById('particles');
+const pColors=['#00f5d4','#7c3aed','#0ea5e9','#ff6b35'];
+for(let i=0;i<30;i++){
+  const p=document.createElement('div');
+  p.className='particle';
+  const left=Math.random()*100, dur=Math.random()*18+10, delay=Math.random()*12, size=Math.random()*2+.5;
+  p.style.cssText=`left:${left}%;width:${size}px;height:${size}px;background:${pColors[Math.floor(Math.random()*4)]};animation-duration:${dur}s;animation-delay:-${delay}s;`;
+  pc.appendChild(p);
+}
+
+/* ── INTERSECTION OBSERVER ── */
+const io=new IntersectionObserver(entries=>{
+  entries.forEach((e,i)=>{
+    if(e.isIntersecting) setTimeout(()=>e.target.classList.add('visible'),e.target.dataset.delay||0);
+  });
+},{threshold:.12});
+document.querySelectorAll('.pain-item,.agent-card,.stat-block').forEach((el,i)=>{
+  el.dataset.delay=i*80;
+  io.observe(el);
+});
+</script>
+</body>
+</html>
